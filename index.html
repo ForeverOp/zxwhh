@@ -2,21 +2,23 @@
 <html lang="pt-br">
 <head>
 <meta charset="UTF-8">
-<title>3D Shooter Analógico</title>
+<title>3D Shooter FPS/3P</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <style>
 body{margin:0;overflow:hidden;background:#000;font-family:Arial}
 #hud{position:fixed;top:10px;left:10px;color:#fff;font-size:18px}
-.crosshair{position:fixed;top:50%;left:50%;width:20px;height:20px;margin:-10px 0 0 -10px;border:2px solid #fff;border-radius:50%;}
+.crosshair{position:fixed;top:50%;left:50%;width:20px;height:20px;margin:-10px 0 0 -10px;border:2px solid #fff;border-radius:50%;display:none;}
 #shoot{position:fixed;width:80px;height:80px;border-radius:50%;background:rgba(255,255,255,.25);border:3px solid #fff;right:20px;bottom:80px;}
+#aim{position:fixed;width:60px;height:60px;border-radius:50%;background:rgba(0,255,0,.3);border:2px solid #0f0;right:110px;bottom:90px;}
 #joystickOuter{position:fixed;width:150px;height:150px;border-radius:50%;background:rgba(255,255,255,.2);left:20px;bottom:50px;}
 #joystickInner{position:absolute;width:70px;height:70px;border-radius:50%;background:rgba(255,255,255,.5);left:40px;top:40px;}
 </style>
 </head>
 <body>
 <div id="hud">Vida: <span id="hp">100</span></div>
-<div class="crosshair"></div>
+<div class="crosshair" id="crosshair"></div>
 <div id="shoot"></div>
+<div id="aim"></div>
 <div id="joystickOuter"><div id="joystickInner"></div></div>
 
 <script src="https://cdn.jsdelivr.net/npm/three@0.158/build/three.min.js"></script>
@@ -27,6 +29,7 @@ let bullets=[],enemyBullets=[],enemies=[];
 let hp=100;
 let yaw=0,pitch=0;
 let move={f:0,b:0,l:0,r:0};
+let firstPerson=false;
 const raycaster=new THREE.Raycaster();
 const down=new THREE.Vector3(0,-1,0);
 let chunks={},chunkSize=50,loadedChunks={},house;
@@ -70,9 +73,11 @@ function init(){
   // INIMIGOS
   for(let i=0;i<6;i++) spawnEnemy();
 
+  // BOTÕES
   document.getElementById("shoot").ontouchstart=shoot;
+  document.getElementById("aim").ontouchstart=()=>{firstPerson=!firstPerson;document.getElementById("crosshair").style.display=firstPerson?"block":"none";};
 
-  // CÂMERA 360°
+  // CÂMERA 360° (exceto no analógico)
   let lx=0,ly=0;
   addEventListener("touchstart",e=>{
     for(let t of e.touches){if(t.target==joyInner)return;}
@@ -90,7 +95,7 @@ function init(){
 
   // ANALÓGICO
   joyOuter.addEventListener("touchstart",e=>{touching=true;});
-  joyOuter.addEventListener("touchend",e=>{touching=false; joyInner.style.left="40px"; joyInner.style.top="40px";});
+  joyOuter.addEventListener("touchend",e=>{touching=false; joyInner.style.left="40px"; joyInner.style.top="40px"; joyDelta={x:0,y:0};});
   joyOuter.addEventListener("touchmove",e=>{
     if(!touching)return;
     let t=e.touches[0];
@@ -108,7 +113,7 @@ function init(){
   addEventListener("resize",()=>{camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth,innerHeight);});
 }
 
-// BIND
+// FUNÇÕES
 function spawnEnemy(){
   let e=new THREE.Group();
   let b=new THREE.Mesh(new THREE.BoxGeometry(1.5,2.5,1),new THREE.MeshStandardMaterial({color:0xff4444}));
@@ -126,18 +131,21 @@ function spawnEnemy(){
 function shoot(){
   let b=new THREE.Mesh(new THREE.SphereGeometry(.15),new THREE.MeshBasicMaterial({color:0xffff00}));
   b.position.copy(player.position);
-  b.vel=new THREE.Vector3(Math.sin(yaw)*Math.cos(pitch),Math.sin(pitch),Math.cos(yaw)*Math.cos(pitch)).multiplyScalar(1.5);
+  let dir=new THREE.Vector3(Math.sin(yaw)*Math.cos(pitch),Math.sin(pitch),Math.cos(yaw)*Math.cos(pitch));
+  b.vel=dir.multiplyScalar(1.5);
   scene.add(b);
   bullets.push(b);
 }
 
-// COLISÃO E MOVIMENTO
-function stickToGround(obj){
-  raycaster.set(obj.position.clone().add(new THREE.Vector3(0,20,0)),down);
-  let hit=Object.values(loadedChunks).map(c=>raycaster.intersectObject(c)).flat();
-  if(hit.length) obj.position.y=hit[0].point.y;
+function enemyShoot(e){
+  let b=new THREE.Mesh(new THREE.SphereGeometry(.15),new THREE.MeshBasicMaterial({color:0xff8800}));
+  b.position.copy(e.position);
+  b.vel=player.position.clone().sub(e.position).normalize().multiplyScalar(.8);
+  scene.add(b);
+  enemyBullets.push({mesh:b,owner:e});
 }
 
+// TERRENO INFINITO
 function generateChunk(x,z){
   let geo=new THREE.PlaneGeometry(50,50,10,10);
   geo.rotateX(-Math.PI/2);
@@ -147,6 +155,7 @@ function generateChunk(x,z){
   mesh.position.set(x,0,z);
   scene.add(mesh);
   loadedChunks[`${x}_${z}`]=mesh;
+
   if(!house && Math.random()<0.2){
     house=new THREE.Group();
     let base=new THREE.Mesh(new THREE.BoxGeometry(5,3,5),new THREE.MeshStandardMaterial({color:0x996633}));
@@ -170,7 +179,13 @@ function updateChunks(){
   }
 }
 
-// ANIMATE
+function stickToGround(obj){
+  raycaster.set(obj.position.clone().add(new THREE.Vector3(0,20,0)),down);
+  let hit=Object.values(loadedChunks).map(c=>raycaster.intersectObject(c)).flat();
+  if(hit.length) obj.position.y=hit[0].point.y;
+}
+
+// LOOP PRINCIPAL
 function animate(){
   requestAnimationFrame(animate);
 
@@ -183,10 +198,16 @@ function animate(){
   stickToGround(player);
   player.rotation.y=yaw;
 
-  camera.position.copy(player.position).add(new THREE.Vector3(-Math.sin(yaw)*6,4+pitch*2,-Math.cos(yaw)*6));
-  camera.lookAt(player.position.clone().add(new THREE.Vector3(0,2,0)));
+  // CÂMERA 3P / 1P
+  if(firstPerson){
+    camera.position.copy(player.position).add(new THREE.Vector3(0,2,0));
+    camera.lookAt(player.position.clone().add(new THREE.Vector3(Math.sin(yaw)*5,2,Math.cos(yaw)*5)));
+  }else{
+    camera.position.copy(player.position).add(new THREE.Vector3(-Math.sin(yaw)*6,4+pitch*2,-Math.cos(yaw)*6));
+    camera.lookAt(player.position.clone().add(new THREE.Vector3(0,2,0)));
+  }
 
-  // COLISÃO TIROS PLAYER
+  // TIROS PLAYER
   bullets.forEach((b,i)=>{
     b.position.add(b.vel);
     enemies.forEach((e,ei)=>{
@@ -197,7 +218,7 @@ function animate(){
     });
   });
 
-  // COLISÃO TIROS INIMIGOS
+  // TIROS INIMIGOS
   enemyBullets.forEach((b,i)=>{
     b.mesh.position.add(b.mesh.vel);
     if(b.mesh.position.distanceTo(player.position)<1){
@@ -218,15 +239,6 @@ function animate(){
 
   updateChunks();
   renderer.render(scene,camera);
-}
-
-// TIROS INIMIGOS
-function enemyShoot(e){
-  let b=new THREE.Mesh(new THREE.SphereGeometry(.15),new THREE.MeshBasicMaterial({color:0xff8800}));
-  b.position.copy(e.position);
-  b.vel=player.position.clone().sub(e.position).normalize().multiplyScalar(.8);
-  scene.add(b);
-  enemyBullets.push({mesh:b,owner:e});
 }
 </script>
 </body>

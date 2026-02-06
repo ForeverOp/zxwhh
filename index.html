@@ -1,221 +1,160 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="pt-br">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Run Tracker</title>
-
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-
+<title>Mountain FPS</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <style>
-body{
-  margin:0;
-  font-family:system-ui,Segoe UI;
-  background:#0f172a;
-  color:#e5e7eb;
+body { margin:0; overflow:hidden; background:#000 }
+#hud{
+  position:fixed; top:10px; left:10px;
+  color:white; font-family:Arial;
 }
-.container{
-  max-width:420px;
-  margin:auto;
-  padding:15px;
-}
-.card{
-  background:#020617;
-  border-radius:16px;
-  padding:15px;
-  box-shadow:0 10px 30px rgba(0,0,0,.6);
-}
-input,button{
-  width:100%;
-  padding:12px;
-  margin-top:10px;
-  border-radius:10px;
-  border:none;
-  font-size:1rem;
-}
-input{
-  background:#020617;
-  color:white;
-  border:1px solid #1e293b;
-}
-button{
-  background:#2563eb;
-  color:white;
-  cursor:pointer;
-}
-button:active{transform:scale(.97)}
-.stop{background:#dc2626}
-.hidden{display:none}
-
-.stats{
-  display:grid;
-  grid-template-columns:1fr 1fr;
-  gap:8px;
-  margin-top:10px;
-}
-.stat{
-  background:#020617;
-  padding:10px;
-  border-radius:12px;
-  text-align:center;
-}
-.big{
-  font-size:1.3rem;
-  font-weight:bold;
-}
-
-#map{
-  height:220px;
-  border-radius:12px;
-  margin-top:12px;
+#cross{
+  position:fixed; top:50%; left:50%;
+  transform:translate(-50%,-50%);
+  font-size:28px; color:white;
 }
 </style>
 </head>
-
 <body>
-<div class="container">
 
-<!-- 🔐 LOGIN -->
-<div id="loginPage" class="card">
-  <h2>Login</h2>
-  <input id="email" type="email" placeholder="Gmail">
-  <input id="pin" type="password" maxlength="5" placeholder="Criar senha (até 5 dígitos)">
-  <button onclick="login()">Entrar</button>
-</div>
+<div id="hud">Vida: <span id="hp">100</span></div>
+<div id="cross">+</div>
 
-<!-- 🏃 MEDIDOR -->
-<div id="trackerPage" class="card hidden">
-  <h2>🏃 Corrida</h2>
+<script src="https://cdn.jsdelivr.net/npm/three@0.158/build/three.min.js"></script>
 
-  <div id="map"></div>
-
-  <div class="stats">
-    <div class="stat">Tempo<div id="time" class="big">00:00</div></div>
-    <div class="stat">KM<div id="km" class="big">0.00</div></div>
-    <div class="stat">Passos<div id="steps" class="big">0</div></div>
-    <div class="stat">Calorias<div id="cal" class="big">0</div></div>
-  </div>
-
-  <button onclick="startRun()">▶ Iniciar</button>
-  <button class="stop" onclick="stopRun()">⏹ Parar</button>
-</div>
-
-</div>
-
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-let watchId = null;
-let timer = null;
-let startTime = 0;
-let totalDistance = 0;
-let lastPos = null;
-let steps = 0;
+let scene,camera,renderer;
+let bullets=[], enemyBullets=[], enemies=[];
+let hp=100;
 
-let map = null;
-let polyline = null;
+init();
+animate();
 
-/* LOGIN */
-function login(){
-  const emailInput = document.getElementById("email");
-  const pinInput = document.getElementById("pin");
+function init(){
+  scene=new THREE.Scene();
+  scene.background=new THREE.Color(0x87ceeb);
 
-  const email = emailInput.value.trim();
-  const pin = pinInput.value.trim();
+  camera=new THREE.PerspectiveCamera(75,innerWidth/innerHeight,0.1,1000);
+  camera.position.set(0,3,10);
 
-  if(!email.endsWith("@gmail.com")){
-    alert("Use um Gmail válido");
-    return;
-  }
+  renderer=new THREE.WebGLRenderer({antialias:true});
+  renderer.setSize(innerWidth,innerHeight);
+  document.body.appendChild(renderer.domElement);
 
-  if(pin.length === 0 || pin.length > 5){
-    alert("Senha deve ter até 5 dígitos");
-    return;
-  }
+  scene.add(new THREE.AmbientLight(0xffffff,.6));
+  let sun=new THREE.DirectionalLight(0xffffff,1);
+  sun.position.set(50,100,50);
+  scene.add(sun);
 
-  localStorage.setItem("user_email", email);
+  // MONTANHA
+  let geo=new THREE.PlaneGeometry(300,300,50,50);
+  geo.rotateX(-Math.PI/2);
+  geo.attributes.position.array.forEach((v,i)=>{
+    if(i%3===1) geo.attributes.position.array[i]=Math.random()*6;
+  });
+  geo.computeVertexNormals();
 
-  document.getElementById("loginPage").classList.add("hidden");
-  document.getElementById("trackerPage").classList.remove("hidden");
+  let ground=new THREE.Mesh(
+    geo,
+    new THREE.MeshStandardMaterial({color:0x228B22})
+  );
+  scene.add(ground);
+
+  // INIMIGOS
+  for(let i=0;i<6;i++) spawnEnemy();
+
+  addEventListener("resize",resize);
+  addEventListener("click",shoot);
+  addEventListener("mousemove",look);
 }
 
-/* INICIAR CORRIDA */
-function startRun(){
-  if(!navigator.geolocation){
-    alert("GPS não suportado");
-    return;
-  }
+function spawnEnemy(){
+  let e=new THREE.Mesh(
+    new THREE.BoxGeometry(2,3,2),
+    new THREE.MeshStandardMaterial({color:0xff0000})
+  );
+  e.position.set((Math.random()-0.5)*80,2,(Math.random()-0.5)*80);
+  e.cooldown=0;
+  scene.add(e);
+  enemies.push(e);
+}
 
-  // reset
-  totalDistance = 0;
-  steps = 0;
-  lastPos = null;
-  document.getElementById("km").innerText = "0.00";
-  document.getElementById("steps").innerText = "0";
-  document.getElementById("cal").innerText = "0";
-  document.getElementById("time").innerText = "00:00";
+let yaw=0,pitch=0;
+function look(e){
+  yaw-=e.movementX*0.002;
+  pitch-=e.movementY*0.002;
+  pitch=Math.max(-1.5,Math.min(1.5,pitch));
+  camera.rotation.set(pitch,yaw,0);
+}
 
-  startTime = Date.now();
-  timer = setInterval(updateTime,1000);
+function shoot(){
+  let b=new THREE.Mesh(
+    new THREE.SphereGeometry(.15),
+    new THREE.MeshBasicMaterial({color:0xffff00})
+  );
+  b.position.copy(camera.position);
+  b.vel=new THREE.Vector3(-Math.sin(yaw),0,-Math.cos(yaw)).multiplyScalar(1.2);
+  scene.add(b);
+  bullets.push(b);
+}
 
-  watchId = navigator.geolocation.watchPosition(pos=>{
-    const {latitude, longitude} = pos.coords;
+function enemyShoot(e){
+  let b=new THREE.Mesh(
+    new THREE.SphereGeometry(.15),
+    new THREE.MeshBasicMaterial({color:0xff8800})
+  );
+  b.position.copy(e.position);
+  let dir=camera.position.clone().sub(e.position).normalize();
+  b.vel=dir.multiplyScalar(.6);
+  scene.add(b);
+  enemyBullets.push(b);
+}
 
-    if(!map){
-      map = L.map("map").setView([latitude, longitude], 17);
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{
-        maxZoom:19
-      }).addTo(map);
+function animate(){
+  requestAnimationFrame(animate);
 
-      polyline = L.polyline([[latitude, longitude]],{color:"red"}).addTo(map);
-    }else{
-      polyline.addLatLng([latitude, longitude]);
-      map.setView([latitude, longitude]);
+  bullets.forEach((b,i)=>{
+    b.position.add(b.vel);
+    enemies.forEach((e,ei)=>{
+      if(b.position.distanceTo(e.position)<1.5){
+        scene.remove(e); enemies.splice(ei,1);
+        scene.remove(b); bullets.splice(i,1);
+        spawnEnemy();
+      }
+    });
+  });
+
+  enemyBullets.forEach((b,i)=>{
+    b.position.add(b.vel);
+    if(b.position.distanceTo(camera.position)<1){
+      hp-=5;
+      document.getElementById("hp").textContent=hp;
+      scene.remove(b); enemyBullets.splice(i,1);
+      if(hp<=0) location.reload();
     }
+  });
 
-    if(lastPos){
-      const d = calcDistance(
-        lastPos.lat,lastPos.lon,
-        latitude,longitude
-      );
-      totalDistance += d;
-      steps += Math.floor(d * 1300);
+  enemies.forEach(e=>{
+    let d=camera.position.distanceTo(e.position);
+    if(d<40){
+      e.lookAt(camera.position);
+      if(e.cooldown<=0){
+        enemyShoot(e);
+        e.cooldown=60;
+      }
     }
+    e.cooldown--;
+  });
 
-    lastPos = {lat:latitude, lon:longitude};
-
-    document.getElementById("km").innerText = totalDistance.toFixed(2);
-    document.getElementById("steps").innerText = steps;
-    document.getElementById("cal").innerText = Math.floor(totalDistance * 60);
-
-  },{ enableHighAccuracy:true });
+  renderer.render(scene,camera);
 }
 
-/* PARAR */
-function stopRun(){
-  if(watchId) navigator.geolocation.clearWatch(watchId);
-  if(timer) clearInterval(timer);
-}
-
-/* TEMPO */
-function updateTime(){
-  let s = Math.floor((Date.now()-startTime)/1000);
-  let m = Math.floor(s/60);
-  s%=60;
-  document.getElementById("time").innerText =
-    String(m).padStart(2,"0")+":"+String(s).padStart(2,"0");
-}
-
-/* DISTÂNCIA (KM) */
-function calcDistance(lat1,lon1,lat2,lon2){
-  const R = 6371;
-  const dLat = (lat2-lat1)*Math.PI/180;
-  const dLon = (lon2-lon1)*Math.PI/180;
-  const a =
-    Math.sin(dLat/2)**2 +
-    Math.cos(lat1*Math.PI/180) *
-    Math.cos(lat2*Math.PI/180) *
-    Math.sin(dLon/2)**2;
-  return R * 2 * Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+function resize(){
+  camera.aspect=innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth,innerHeight);
 }
 </script>
 </body>

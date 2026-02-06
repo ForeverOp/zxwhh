@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Run Tracker</title>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+
+<style>
+body{
+  margin:0;
+  font-family:system-ui,Segoe UI;
+  background:#0f172a;
+  color:#e5e7eb;
+}
+.container{
+  max-width:420px;
+  margin:auto;
+  padding:15px;
+}
+.card{
+  background:#020617;
+  border-radius:16px;
+  padding:15px;
+  box-shadow:0 10px 30px rgba(0,0,0,.6);
+}
+input,button{
+  width:100%;
+  padding:12px;
+  margin-top:10px;
+  border-radius:10px;
+  border:none;
+  font-size:1rem;
+}
+input{
+  background:#020617;
+  color:white;
+  border:1px solid #1e293b;
+}
+button{
+  background:#2563eb;
+  color:white;
+  cursor:pointer;
+}
+button:active{transform:scale(.97)}
+.stop{background:#dc2626}
+.hidden{display:none}
+
+.stats{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:8px;
+  margin-top:10px;
+}
+.stat{
+  background:#020617;
+  padding:10px;
+  border-radius:12px;
+  text-align:center;
+}
+.big{
+  font-size:1.3rem;
+  font-weight:bold;
+}
+
+#map{
+  height:220px;
+  border-radius:12px;
+  margin-top:12px;
+}
+</style>
+</head>
+
+<body>
+<div class="container">
+
+<!-- 🔐 LOGIN -->
+<div id="loginPage" class="card">
+  <h2>Login</h2>
+  <input id="email" type="email" placeholder="Gmail">
+  <input id="pin" type="password" maxlength="5" placeholder="Criar senha (até 5 dígitos)">
+  <button onclick="login()">Entrar</button>
+</div>
+
+<!-- 🏃 MEDIDOR -->
+<div id="trackerPage" class="card hidden">
+  <h2>🏃 Corrida</h2>
+
+  <div id="map"></div>
+
+  <div class="stats">
+    <div class="stat">Tempo<div id="time" class="big">00:00</div></div>
+    <div class="stat">KM<div id="km" class="big">0.00</div></div>
+    <div class="stat">Passos<div id="steps" class="big">0</div></div>
+    <div class="stat">Calorias<div id="cal" class="big">0</div></div>
+  </div>
+
+  <button onclick="startRun()">▶ Iniciar</button>
+  <button class="stop" onclick="stopRun()">⏹ Parar</button>
+</div>
+
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+let watchId = null;
+let timer = null;
+let startTime = 0;
+let totalDistance = 0;
+let lastPos = null;
+let steps = 0;
+
+let map = null;
+let polyline = null;
+
+/* LOGIN */
+function login(){
+  const emailInput = document.getElementById("email");
+  const pinInput = document.getElementById("pin");
+
+  const email = emailInput.value.trim();
+  const pin = pinInput.value.trim();
+
+  if(!email.endsWith("@gmail.com")){
+    alert("Use um Gmail válido");
+    return;
+  }
+
+  if(pin.length === 0 || pin.length > 5){
+    alert("Senha deve ter até 5 dígitos");
+    return;
+  }
+
+  localStorage.setItem("user_email", email);
+
+  document.getElementById("loginPage").classList.add("hidden");
+  document.getElementById("trackerPage").classList.remove("hidden");
+}
+
+/* INICIAR CORRIDA */
+function startRun(){
+  if(!navigator.geolocation){
+    alert("GPS não suportado");
+    return;
+  }
+
+  // reset
+  totalDistance = 0;
+  steps = 0;
+  lastPos = null;
+  document.getElementById("km").innerText = "0.00";
+  document.getElementById("steps").innerText = "0";
+  document.getElementById("cal").innerText = "0";
+  document.getElementById("time").innerText = "00:00";
+
+  startTime = Date.now();
+  timer = setInterval(updateTime,1000);
+
+  watchId = navigator.geolocation.watchPosition(pos=>{
+    const {latitude, longitude} = pos.coords;
+
+    if(!map){
+      map = L.map("map").setView([latitude, longitude], 17);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{
+        maxZoom:19
+      }).addTo(map);
+
+      polyline = L.polyline([[latitude, longitude]],{color:"red"}).addTo(map);
+    }else{
+      polyline.addLatLng([latitude, longitude]);
+      map.setView([latitude, longitude]);
+    }
+
+    if(lastPos){
+      const d = calcDistance(
+        lastPos.lat,lastPos.lon,
+        latitude,longitude
+      );
+      totalDistance += d;
+      steps += Math.floor(d * 1300);
+    }
+
+    lastPos = {lat:latitude, lon:longitude};
+
+    document.getElementById("km").innerText = totalDistance.toFixed(2);
+    document.getElementById("steps").innerText = steps;
+    document.getElementById("cal").innerText = Math.floor(totalDistance * 60);
+
+  },{ enableHighAccuracy:true });
+}
+
+/* PARAR */
+function stopRun(){
+  if(watchId) navigator.geolocation.clearWatch(watchId);
+  if(timer) clearInterval(timer);
+}
+
+/* TEMPO */
+function updateTime(){
+  let s = Math.floor((Date.now()-startTime)/1000);
+  let m = Math.floor(s/60);
+  s%=60;
+  document.getElementById("time").innerText =
+    String(m).padStart(2,"0")+":"+String(s).padStart(2,"0");
+}
+
+/* DISTÂNCIA (KM) */
+function calcDistance(lat1,lon1,lat2,lon2){
+  const R = 6371;
+  const dLat = (lat2-lat1)*Math.PI/180;
+  const dLon = (lon2-lon1)*Math.PI/180;
+  const a =
+    Math.sin(dLat/2)**2 +
+    Math.cos(lat1*Math.PI/180) *
+    Math.cos(lat2*Math.PI/180) *
+    Math.sin(dLon/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+</script>
+</body>
+</html>

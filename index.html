@@ -2,7 +2,7 @@
 <html lang="pt-br">
 <head>
 <meta charset="UTF-8">
-<title>3D Shooter Infinito</title>
+<title>3D Shooter Final Colisão</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <style>
 body{margin:0;overflow:hidden;background:#000;font-family:Arial}
@@ -33,13 +33,9 @@ let yaw=0,pitch=0;
 let move={f:0,b:0,l:0,r:0};
 const raycaster=new THREE.Raycaster();
 const down=new THREE.Vector3(0,-1,0);
-
-// TERRENO INFINITO
 let chunks={};
 const chunkSize=50;
 let loadedChunks={};
-
-// CASA
 let house;
 
 init();
@@ -48,13 +44,10 @@ animate();
 function init(){
   scene=new THREE.Scene();
   scene.background=new THREE.Color(0x87ceeb);
-
   camera=new THREE.PerspectiveCamera(70,innerWidth/innerHeight,0.1,1000);
-
   renderer=new THREE.WebGLRenderer({antialias:true});
   renderer.setSize(innerWidth,innerHeight);
   document.body.appendChild(renderer.domElement);
-
   scene.add(new THREE.AmbientLight(0xffffff,.7));
   let sun=new THREE.DirectionalLight(0xffffff,1);
   sun.position.set(100,200,100);
@@ -91,18 +84,26 @@ function init(){
   addEventListener("touchmove",e=>{
     let dx=e.touches[0].clientX-lx;
     let dy=e.touches[0].clientY-ly;
-    yaw-=dx*0.004; // corrigido
-    pitch-=dy*0.004; // corrigido
+    yaw-=dx*0.004;
+    pitch-=dy*0.004;
     pitch=Math.max(-1.2,Math.min(1.2,pitch));
     lx=e.touches[0].clientX; ly=e.touches[0].clientY;
   });
 
   addEventListener("resize",()=>{camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth,innerHeight);});
-
 }
 
+// BIND BUTTONS
 function bind(id,on,off){let b=document.getElementById(id); b.ontouchstart=on; b.ontouchend=off;}
 
+// PLAYER & INIMIGOS NO CHÃO
+function stickToGround(obj){
+  raycaster.set(obj.position.clone().add(new THREE.Vector3(0,20,0)),down);
+  let hit=Object.values(loadedChunks).map(c=>raycaster.intersectObject(c)).flat();
+  if(hit.length) obj.position.y=hit[0].point.y;
+}
+
+// SPAWN ENEMIGOS
 function spawnEnemy(){
   let e=new THREE.Group();
   let b=new THREE.Mesh(new THREE.BoxGeometry(1.5,2.5,1),new THREE.MeshStandardMaterial({color:0xff4444}));
@@ -112,41 +113,41 @@ function spawnEnemy(){
   e.add(b,h);
   e.position.set((Math.random()-0.5)*80,50,(Math.random()-0.5)*80);
   e.cool=0;
+  e.hp=20; // vida
   scene.add(e);
   enemies.push(e);
 }
 
+// TIROS PLAYER
 function shoot(){
   let b=new THREE.Mesh(new THREE.SphereGeometry(.15),new THREE.MeshBasicMaterial({color:0xffff00}));
   b.position.copy(player.position);
-  b.vel=new THREE.Vector3(Math.sin(yaw)*Math.cos(pitch),Math.sin(pitch),Math.cos(yaw)*Math.cos(pitch)).multiplyScalar(1);
+  b.vel=new THREE.Vector3(Math.sin(yaw)*Math.cos(pitch),Math.sin(pitch),Math.cos(yaw)*Math.cos(pitch)).multiplyScalar(1.5);
   scene.add(b);
   bullets.push(b);
 }
 
+// TIROS INIMIGOS
 function enemyShoot(e){
   let b=new THREE.Mesh(new THREE.SphereGeometry(.15),new THREE.MeshBasicMaterial({color:0xff8800}));
   b.position.copy(e.position);
-  b.vel=player.position.clone().sub(e.position).normalize().multiplyScalar(.5);
+  b.vel=player.position.clone().sub(e.position).normalize().multiplyScalar(.8);
   scene.add(b);
-  enemyBullets.push(b);
+  enemyBullets.push({mesh:b,owner:e});
 }
 
-// TERRENO INFINITO
+// MAPA INFINITO
 function generateChunk(x,z){
-  let geo=new THREE.PlaneGeometry(chunkSize,chunkSize,10,10);
+  let geo=new THREE.PlaneGeometry(50,50,10,10);
   geo.rotateX(-Math.PI/2);
-  for(let i=0;i<geo.attributes.position.count;i++){
-    geo.attributes.position.setY(i,Math.random()*6);
-  }
+  for(let i=0;i<geo.attributes.position.count;i++){geo.attributes.position.setY(i,Math.random()*6);}
   geo.computeVertexNormals();
-  let mat=new THREE.MeshStandardMaterial({color:0x3a7d44});
-  let mesh=new THREE.Mesh(geo,mat);
+  let mesh=new THREE.Mesh(geo,new THREE.MeshStandardMaterial({color:0x3a7d44}));
   mesh.position.set(x,0,z);
   scene.add(mesh);
   loadedChunks[`${x}_${z}`]=mesh;
 
-  // Adiciona casa na parte plana
+  // CASA
   if(!house && Math.random()<0.2){
     house=new THREE.Group();
     let base=new THREE.Mesh(new THREE.BoxGeometry(5,3,5),new THREE.MeshStandardMaterial({color:0x996633}));
@@ -160,27 +161,20 @@ function generateChunk(x,z){
 }
 
 function updateChunks(){
-  let cx=Math.floor(player.position.x/chunkSize)*chunkSize;
-  let cz=Math.floor(player.position.z/chunkSize)*chunkSize;
-
+  let cx=Math.floor(player.position.x/50)*50;
+  let cz=Math.floor(player.position.z/50)*50;
   for(let dx=-2;dx<=2;dx++){
     for(let dz=-2;dz<=2;dz++){
-      let key=`${cx+dx*chunkSize}_${cz+dz*chunkSize}`;
-      if(!loadedChunks[key]) generateChunk(cx+dx*chunkSize,cz+dz*chunkSize);
+      let key=`${cx+dx*50}_${cz+dz*50}`;
+      if(!loadedChunks[key]) generateChunk(cx+dx*50,cz+dz*50);
     }
   }
 }
 
-function stickToGround(obj){
-  raycaster.set(obj.position.clone().add(new THREE.Vector3(0,20,0)),down);
-  let hit=Object.values(loadedChunks).map(c=>raycaster.intersectObject(c)).flat();
-  if(hit.length) obj.position.y=hit[0].point.y;
-}
-
+// LOOP PRINCIPAL
 function animate(){
   requestAnimationFrame(animate);
 
-  // MOVIMENTO
   let forward=new THREE.Vector3(Math.sin(yaw),0,Math.cos(yaw));
   let side=new THREE.Vector3(Math.cos(yaw),0,-Math.sin(yaw));
   if(move.f) player.position.add(forward.clone().multiplyScalar(.25));
@@ -194,9 +188,36 @@ function animate(){
   camera.position.copy(player.position).add(new THREE.Vector3(-Math.sin(yaw)*6,4+pitch*2,-Math.cos(yaw)*6));
   camera.lookAt(player.position.clone().add(new THREE.Vector3(0,2,0)));
 
-  bullets.forEach(b=>b.position.add(b.vel));
-  enemyBullets.forEach(b=>b.position.add(b.vel));
+  // COLISÃO TIROS PLAYER
+  bullets.forEach((b,i)=>{
+    b.position.add(b.vel);
+    enemies.forEach((e,ei)=>{
+      if(b.position.distanceTo(e.position)<1.5){
+        e.hp-=10;
+        scene.remove(b);
+        bullets.splice(i,1);
+        if(e.hp<=0){
+          scene.remove(e);
+          enemies.splice(ei,1);
+          spawnEnemy();
+        }
+      }
+    });
+  });
 
+  // COLISÃO TIROS INIMIGOS
+  enemyBullets.forEach((b,i)=>{
+    b.mesh.position.add(b.mesh.vel);
+    if(b.mesh.position.distanceTo(player.position)<1){
+      hp-=5;
+      document.getElementById("hp").textContent=hp;
+      scene.remove(b.mesh);
+      enemyBullets.splice(i,1);
+      if(hp<=0) location.reload();
+    }
+  });
+
+  // INIMIGOS
   enemies.forEach(e=>{
     stickToGround(e);
     if(e.position.distanceTo(player.position)<40){

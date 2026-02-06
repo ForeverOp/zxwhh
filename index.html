@@ -2,23 +2,29 @@
 <html lang="pt-br">
 <head>
 <meta charset="UTF-8">
-<title>3D Shooter Poki</title>
+<title>Poki 3D Shooter</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <style>
-body { margin:0; overflow:hidden; background:#000; font-family:Arial }
-#hud { position:fixed; top:10px; left:10px; color:#fff }
-.btn {
-  position:fixed;
-  width:70px; height:70px;
-  border-radius:50%;
-  background:rgba(255,255,255,.2);
-  border:2px solid #fff;
+body{margin:0;overflow:hidden;background:#000;font-family:Arial}
+
+#hud{
+  position:fixed;top:10px;left:10px;
+  color:#fff;font-size:18px;
 }
-#shoot { right:20px; bottom:60px }
-#left { left:20px; bottom:80px }
-#right { left:120px; bottom:80px }
-#up { left:70px; bottom:140px }
-#down { left:70px; bottom:20px }
+
+.btn{
+  position:fixed;
+  width:90px;height:90px;
+  border-radius:50%;
+  background:rgba(255,255,255,.25);
+  border:3px solid #fff;
+}
+
+#shoot{right:20px;bottom:80px}
+#up{left:80px;bottom:200px}
+#down{left:80px;bottom:40px}
+#left{left:10px;bottom:120px}
+#right{left:150px;bottom:120px}
 </style>
 </head>
 <body>
@@ -35,11 +41,12 @@ body { margin:0; overflow:hidden; background:#000; font-family:Arial }
 
 <script>
 let scene,camera,renderer;
-let player, gun;
-let bullets=[], enemyBullets=[], enemies=[];
+let player,gun;
+let bullets=[],enemyBullets=[],enemies=[];
 let hp=100;
 let yaw=0;
-let move={up:0,down:0,left:0,right:0};
+let move={u:0,d:0,l:0,r:0};
+let spawnY=2;
 
 init();
 animate();
@@ -48,7 +55,7 @@ function init(){
   scene=new THREE.Scene();
   scene.background=new THREE.Color(0x87ceeb);
 
-  camera=new THREE.PerspectiveCamera(75,innerWidth/innerHeight,0.1,500);
+  camera=new THREE.PerspectiveCamera(70,innerWidth/innerHeight,0.1,500);
 
   renderer=new THREE.WebGLRenderer({antialias:true});
   renderer.setSize(innerWidth,innerHeight);
@@ -56,51 +63,57 @@ function init(){
 
   scene.add(new THREE.AmbientLight(0xffffff,.7));
   let sun=new THREE.DirectionalLight(0xffffff,1);
-  sun.position.set(50,100,50);
+  sun.position.set(100,200,100);
   scene.add(sun);
 
-  // MAPA MONTANHA
+  // MAPA / MONTANHA
   let geo=new THREE.PlaneGeometry(300,300,40,40);
   geo.rotateX(-Math.PI/2);
   for(let i=0;i<geo.attributes.position.count;i++){
     geo.attributes.position.setY(i,Math.random()*6);
   }
   geo.computeVertexNormals();
-  scene.add(new THREE.Mesh(
+  let ground=new THREE.Mesh(
     geo,
-    new THREE.MeshStandardMaterial({color:0x2e8b57})
-  ));
-
-  // PLAYER
-  player=new THREE.Mesh(
-    new THREE.CapsuleGeometry(1,2),
-    new THREE.MeshStandardMaterial({color:0x0000ff})
+    new THREE.MeshStandardMaterial({color:0x3a7d44})
   );
-  player.position.y=3;
+  scene.add(ground);
+
+  // PLAYER (MANEQUIM)
+  player=new THREE.Group();
+
+  let body=new THREE.Mesh(
+    new THREE.BoxGeometry(1.5,2.5,1),
+    new THREE.MeshStandardMaterial({color:0xaaaaaa})
+  );
+  body.position.y=1.5;
+
+  let head=new THREE.Mesh(
+    new THREE.BoxGeometry(1.2,1.2,1.2),
+    new THREE.MeshStandardMaterial({color:0xcccccc})
+  );
+  head.position.y=3;
+
+  player.add(body,head);
+  player.position.set(0,spawnY,0);
   scene.add(player);
 
   // ARMA
   gun=new THREE.Mesh(
-    new THREE.BoxGeometry(.2,.2,1),
-    new THREE.MeshStandardMaterial({color:0x333})
+    new THREE.BoxGeometry(.3,.3,1.2),
+    new THREE.MeshStandardMaterial({color:0x222})
   );
-  gun.position.set(.6,1.2,1);
+  gun.position.set(.9,1.8,.5);
   player.add(gun);
 
   // INIMIGOS
   for(let i=0;i<5;i++) spawnEnemy();
 
-  // CONTROLES MOBILE
-  bind("up",()=>move.up=1,()=>move.up=0);
-  bind("down",()=>move.down=1,()=>move.down=0);
-  bind("left",()=>move.left=1,()=>move.left=0);
-  bind("right",()=>move.right=1,()=>move.right=0);
+  bind("up",()=>move.u=1,()=>move.u=0);
+  bind("down",()=>move.d=1,()=>move.d=0);
+  bind("left",()=>move.l=1,()=>move.l=0);
+  bind("right",()=>move.r=1,()=>move.r=0);
   document.getElementById("shoot").ontouchstart=shoot;
-
-  // GIRAR CAMERA
-  addEventListener("touchmove",e=>{
-    yaw-=e.touches[0].movementX*0.002||0.02;
-  });
 
   addEventListener("resize",resize);
 }
@@ -112,11 +125,26 @@ function bind(id,on,off){
 }
 
 function spawnEnemy(){
-  let e=new THREE.Mesh(
-    new THREE.BoxGeometry(2,3,2),
-    new THREE.MeshStandardMaterial({color:0xff0000})
+  let e=new THREE.Group();
+
+  let b=new THREE.Mesh(
+    new THREE.BoxGeometry(1.5,2.5,1),
+    new THREE.MeshStandardMaterial({color:0xff4444})
   );
-  e.position.set((Math.random()-0.5)*80,3,(Math.random()-0.5)*80);
+  b.position.y=1.5;
+
+  let h=new THREE.Mesh(
+    new THREE.BoxGeometry(1.2,1.2,1.2),
+    new THREE.MeshStandardMaterial({color:0xff7777})
+  );
+  h.position.y=3;
+
+  e.add(b,h);
+  e.position.set(
+    (Math.random()-0.5)*80,
+    spawnY,
+    (Math.random()-0.5)*80
+  );
   e.cool=0;
   scene.add(e);
   enemies.push(e);
@@ -147,27 +175,25 @@ function enemyShoot(e){
 function animate(){
   requestAnimationFrame(animate);
 
-  // MOVIMENTO
   let dir=new THREE.Vector3(Math.sin(yaw),0,Math.cos(yaw));
-  if(move.up) player.position.add(dir.multiplyScalar(.2));
-  if(move.down) player.position.add(dir.multiplyScalar(-.2));
-  if(move.left) yaw+=0.05;
-  if(move.right) yaw-=0.05;
+  if(move.u) player.position.add(dir.clone().multiplyScalar(.25));
+  if(move.d) player.position.add(dir.clone().multiplyScalar(-.25));
+  if(move.l) yaw+=0.05;
+  if(move.r) yaw-=0.05;
+
   player.rotation.y=yaw;
 
-  // CAMERA 3ª PESSOA
-  camera.position.copy(player.position).add(new THREE.Vector3(
-    -Math.sin(yaw)*6,4,-Math.cos(yaw)*6
-  ));
+  camera.position.copy(player.position).add(
+    new THREE.Vector3(-Math.sin(yaw)*6,4,-Math.cos(yaw)*6)
+  );
   camera.lookAt(player.position);
 
-  // TIROS
   bullets.forEach((b,i)=>{
     b.position.add(b.vel);
     enemies.forEach((e,ei)=>{
       if(b.position.distanceTo(e.position)<1.5){
-        scene.remove(e); enemies.splice(ei,1);
-        scene.remove(b); bullets.splice(i,1);
+        scene.remove(e);enemies.splice(ei,1);
+        scene.remove(b);bullets.splice(i,1);
         spawnEnemy();
       }
     });
@@ -178,7 +204,7 @@ function animate(){
     if(b.position.distanceTo(player.position)<1){
       hp-=5;
       document.getElementById("hp").textContent=hp;
-      scene.remove(b); enemyBullets.splice(i,1);
+      scene.remove(b);enemyBullets.splice(i,1);
       if(hp<=0) location.reload();
     }
   });
@@ -186,7 +212,7 @@ function animate(){
   enemies.forEach(e=>{
     if(e.position.distanceTo(player.position)<40){
       e.lookAt(player.position);
-      if(e.cool<=0){ enemyShoot(e); e.cool=80; }
+      if(e.cool<=0){enemyShoot(e);e.cool=90;}
     }
     e.cool--;
   });
